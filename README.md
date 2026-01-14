@@ -1,0 +1,2 @@
+SO I am making a waste detection system as it is my multidisciplinary project and this is the code for the model which classifies the images and the dataset link is: https://drive.google.com/drive/folders/1nTY9cA5JtatAnA4ColL9ec8nPzozTF3Y?usp=drive_link
+currently I am working and learning how to integrate the model with backend, frontend and database and in future we will also be doing hardware intergration with this.
