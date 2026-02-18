@@ -1,0 +1,39 @@
+version: "3.9"
+
+services:
+  # ── Backend: FastAPI ──────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: ecovision-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./garbage_efficientnet_model.h5:/app/model/garbage_efficientnet_model.h5:ro
+    environment:
+      - MODEL_PATH=/app/model/garbage_efficientnet_model.h5
+      - LOG_LEVEL=INFO
+      - CONFIDENCE_THRESHOLD=0.5
+    restart: unless-stopped
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ── Frontend: Streamlit ───────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: ecovision-frontend
+    ports:
+      - "8501:8501"
+    environment:
+      - BACKEND_URL=http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
