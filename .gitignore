@@ -11,8 +11,8 @@ venv/
 .venv/
 env/
 
-# ── Model files (too large for git) ──────────────
-*.h5
+# ── Model files (too large for regular git) ──────
+# *.h5 is tracked via Git LFS — do NOT ignore it
 *.keras
 *.pth
 *.onnx
