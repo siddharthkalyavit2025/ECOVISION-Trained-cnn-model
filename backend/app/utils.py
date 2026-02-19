@@ -31,7 +31,7 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
         1. Open image with Pillow and convert to RGB.
         2. Resize to (IMAGE_SIZE × IMAGE_SIZE).
         3. Convert to float32 numpy array.
-        4. Normalize pixel values to [0, 1].
+        4. Apply EfficientNet-specific ImageNet preprocessing (scales to [-1, 1]).
         5. Expand to batch dimension → shape (1, H, W, 3).
 
     Args:
@@ -42,8 +42,10 @@ def preprocess_image(image_bytes: bytes) -> np.ndarray:
     """
     image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     image = image.resize((settings.IMAGE_SIZE, settings.IMAGE_SIZE))
-    img_array = np.array(image, dtype=np.float32) / 255.0
+    img_array = np.array(image, dtype=np.float32)
     img_array = np.expand_dims(img_array, axis=0)
+    # Apply EfficientNet's ImageNet normalization (scales [0, 255] → [-1, 1])
+    img_array = tf.keras.applications.efficientnet.preprocess_input(img_array)
     logger.debug("Preprocessed image shape: %s", img_array.shape)
     return img_array
 
@@ -157,8 +159,9 @@ def _compute_gradcam(
     # Apply colormap
     colormap = cm.jet(heatmap_array)[:, :, :3]
 
-    # Overlay on original image
-    original = img_array[0]
+    # Overlay on original image (rescale from [-1, 1] back to [0, 1] for display)
+    original = (img_array[0] + 1.0) / 2.0
+    original = np.clip(original, 0.0, 1.0)
     overlay = 0.6 * original + 0.4 * colormap
 
     fig, ax = plt.subplots(1, 1, figsize=(4, 4))
