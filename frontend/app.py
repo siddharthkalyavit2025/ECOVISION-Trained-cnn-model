@@ -131,6 +131,7 @@ st.markdown(
         border-radius: 16px;
         padding: 1rem;
     }
+
     </style>
     """,
     unsafe_allow_html=True,
@@ -147,11 +148,13 @@ def render_header() -> None:
         """
         <div class="eco-header">
             <h1>♻️ EcoVision</h1>
-            <p>AI-Powered Garbage Classification — Drop an image and let the model decide!</p>
+            <p>AI-Powered Garbage Classification</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+
+
 
 
 def render_probability_chart(probabilities: dict[str, float]) -> None:
@@ -253,6 +256,11 @@ def main() -> None:
     render_header()
 
     st.markdown("---")
+
+    # ═══════════════════════════════════════════════════════════════════
+    #  Waste Classification
+    # ═══════════════════════════════════════════════════════════════════
+    st.markdown("### 📸 Waste Classification")
 
     # ── File uploader ────────────────────────────────────────────────
     uploaded_file = st.file_uploader(

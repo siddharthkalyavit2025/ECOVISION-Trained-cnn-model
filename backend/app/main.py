@@ -48,6 +48,7 @@ async def lifespan(app: FastAPI):
     except Exception as exc:
         logger.critical("Model failed to load: %s", exc)
         raise
+
     yield
     logger.info("👋 Shutting down EcoVision API.")
 
@@ -90,6 +91,7 @@ async def health_check() -> HealthResponse:
         model_loaded=is_model_loaded(),
         model_path=settings.MODEL_PATH,
     )
+
 
 
 @app.post(
