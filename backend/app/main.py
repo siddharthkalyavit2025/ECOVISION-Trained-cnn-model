@@ -19,6 +19,7 @@ from app.config import settings
 from app.model_loader import is_model_loaded, load_model
 from app.predict import predict_image
 from app.schemas import GradCAMResponse, HealthResponse, PredictionResponse
+from app.servo import connect_arduino, disconnect_arduino, rotate_servo_for_class
 
 # ── Logging ──────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -49,7 +50,12 @@ async def lifespan(app: FastAPI):
         logger.critical("Model failed to load: %s", exc)
         raise
 
+    # Connect to Arduino (non-blocking — logs warning if unavailable)
+    connect_arduino()
+
     yield
+
+    disconnect_arduino()
     logger.info("👋 Shutting down EcoVision API.")
 
 
@@ -108,6 +114,13 @@ async def predict(file: UploadFile = File(...)) -> PredictionResponse:
     _validate_upload(file)
     image_bytes = await file.read()
     result = predict_image(image_bytes, filename=file.filename or "upload")
+
+    # ── Servo: rotate bin based on predicted class ────────────────
+    servo_info = rotate_servo_for_class(result["predicted_class"])
+    logger.info("Servo → %s", servo_info)
+    result["bin_category"] = servo_info["bin_category"]
+    result["servo_angle"] = servo_info["servo_angle"]
+
     return PredictionResponse(**result)
 
 
@@ -126,6 +139,13 @@ async def predict_with_gradcam(
     result = predict_image(
         image_bytes, filename=file.filename or "upload", return_gradcam=True
     )
+
+    # ── Servo: rotate bin based on predicted class ────────────────
+    servo_info = rotate_servo_for_class(result["predicted_class"])
+    logger.info("Servo → %s", servo_info)
+    result["bin_category"] = servo_info["bin_category"]
+    result["servo_angle"] = servo_info["servo_angle"]
+
     return GradCAMResponse(**result)
 
 

@@ -1,8 +1,9 @@
 """
 EcoVision — Streamlit Frontend
 
-A modern UI for uploading waste images and receiving AI-powered
-classification results from the FastAPI backend.
+A modern UI for uploading waste images OR capturing them via the
+phone camera, then receiving AI-powered classification results
+from the FastAPI backend.  Supports mobile browser access.
 """
 
 from __future__ import annotations
@@ -117,6 +118,36 @@ st.markdown(
         color: #fff3cd;
     }
 
+    /* ── Bin info card ─────────────────── */
+    .bin-card {
+        background: rgba(0, 201, 255, 0.08);
+        border: 1px solid rgba(0, 201, 255, 0.25);
+        border-radius: 16px;
+        padding: 1.2rem 1.5rem;
+        margin: 1rem 0;
+        backdrop-filter: blur(12px);
+    }
+    .bin-card h3 {
+        margin: 0 0 0.8rem 0;
+        color: #00c9ff;
+    }
+    .bin-label {
+        display: inline-block;
+        padding: 0.35rem 1rem;
+        border-radius: 50px;
+        font-weight: 700;
+        font-size: 1.1rem;
+        margin-right: 0.8rem;
+    }
+    .bin-recyclable { background: rgba(146,254,157,0.2); color: #92fe9d; }
+    .bin-organic    { background: rgba(255,193,7,0.2);   color: #ffc107; }
+    .bin-other      { background: rgba(255,77,79,0.2);   color: #ff4d4f; }
+    .servo-info {
+        color: #b0b0c0;
+        font-size: 0.95rem;
+        margin-top: 0.5rem;
+    }
+
     /* ── Footer ────────────────────────── */
     .eco-footer {
         text-align: center;
@@ -130,6 +161,29 @@ st.markdown(
         border: 2px dashed rgba(146,254,157,0.3);
         border-radius: 16px;
         padding: 1rem;
+    }
+
+    /* ── Camera area (mobile-friendly) ── */
+    [data-testid="stCameraInput"] {
+        border: 2px dashed rgba(0,201,255,0.3);
+        border-radius: 16px;
+        padding: 0.5rem;
+    }
+
+    /* ── Tabs styling ─────────────────── */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: rgba(255,255,255,0.05);
+        border-radius: 10px;
+        color: #b0b0c0;
+        padding: 0.5rem 1.5rem;
+    }
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #00c9ff, #92fe9d) !important;
+        color: #0f0c29 !important;
+        font-weight: 700;
     }
 
     </style>
@@ -153,8 +207,6 @@ def render_header() -> None:
         """,
         unsafe_allow_html=True,
     )
-
-
 
 
 def render_probability_chart(probabilities: dict[str, float]) -> None:
@@ -247,6 +299,106 @@ def render_result(result: dict) -> None:
         )
 
 
+def render_bin_info(result: dict) -> None:
+    """Render the bin category and servo angle card."""
+    bin_category = result.get("bin_category")
+    servo_angle = result.get("servo_angle")
+
+    if bin_category is None:
+        return
+
+    # Pick styling per category
+    bin_styles = {
+        "recyclable": ("♻️ Recyclable", "bin-recyclable"),
+        "organic":    ("🌿 Organic", "bin-organic"),
+        "other":      ("🗑️ Other", "bin-other"),
+    }
+    label_text, css_class = bin_styles.get(bin_category, ("❓ Unknown", "bin-other"))
+
+    st.markdown(
+        f"""
+        <div class="bin-card">
+            <h3>🔌 Smart Bin Routing</h3>
+            <span class="bin-label {css_class}">{label_text}</span>
+            <div class="servo-info">
+                Servo angle: <strong>{servo_angle}°</strong> → Motor activated automatically
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  Prediction helper
+# ═══════════════════════════════════════════════════════════════════════════
+
+def send_to_backend(
+    image_bytes: bytes,
+    filename: str,
+    content_type: str,
+    use_gradcam: bool = False,
+) -> dict | None:
+    """Send an image to the backend and return the JSON result.
+
+    Returns None on error (errors are displayed in-app).
+    """
+    endpoint = GRADCAM_ENDPOINT if use_gradcam else PREDICT_ENDPOINT
+    files = {"file": (filename, image_bytes, content_type)}
+    try:
+        response = requests.post(endpoint, files=files, timeout=60)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            st.error(
+                f"❌ API Error ({response.status_code}): "
+                f"{response.json().get('detail', response.text)}"
+            )
+    except requests.exceptions.ConnectionError:
+        st.error(
+            "❌ **Could not connect to the backend.**\n\n"
+            f"Make sure the FastAPI server is running at `{BACKEND_URL}`.\n\n"
+            "```bash\ncd backend && uvicorn app.main:app --reload\n```"
+        )
+    except requests.exceptions.Timeout:
+        st.error("⏱️ Request timed out. The model may be loading — try again.")
+    except Exception as exc:
+        st.error(f"❌ Unexpected error: {exc}")
+    return None
+
+
+def display_prediction(result: dict, show_gradcam: bool = False) -> None:
+    """Render all result sections (result card, bin info, chart, gradcam)."""
+
+    render_result(result)
+    render_bin_info(result)
+
+    # ── Probability chart ────────────────────────────────────────────
+    st.markdown("### 📊 Class Probabilities")
+    render_probability_chart(result["all_probabilities"])
+
+    # ── Grad-CAM ──────────────────────────────────────────────────────
+    if show_gradcam and result.get("gradcam_image"):
+        st.markdown("### 🔥 Grad-CAM Heatmap")
+        import base64
+        from io import BytesIO
+
+        gradcam_bytes = base64.b64decode(result["gradcam_image"])
+        gradcam_img = Image.open(BytesIO(gradcam_bytes))
+        st.image(
+            gradcam_img,
+            caption="Grad-CAM — Areas the model focused on",
+            use_container_width=True,
+        )
+
+    # ── Raw JSON (expandable) ────────────────────────────────────────
+    with st.expander("📋 Raw API Response"):
+        display_result = {
+            k: v for k, v in result.items() if k != "gradcam_image"
+        }
+        st.json(display_result)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  Main App
 # ═══════════════════════════════════════════════════════════════════════════
@@ -258,91 +410,77 @@ def main() -> None:
     st.markdown("---")
 
     # ═══════════════════════════════════════════════════════════════════
-    #  Waste Classification
+    #  Waste Classification — two input modes
     # ═══════════════════════════════════════════════════════════════════
     st.markdown("### 📸 Waste Classification")
 
-    # ── File uploader ────────────────────────────────────────────────
-    uploaded_file = st.file_uploader(
-        "📤 Upload a waste image",
-        type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
-        help="Supported formats: JPEG, PNG, WebP, BMP, TIFF",
-    )
+    tab_camera, tab_upload = st.tabs(["📱 Camera Capture", "📤 File Upload"])
 
-    if uploaded_file is not None:
-        # ── Preview ──────────────────────────────────────────────────
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            image = Image.open(uploaded_file)
-            st.image(image, caption="Uploaded Image", use_container_width=True)
+    # ── Tab 1: Camera Capture (mobile-friendly, auto-predict) ────────
+    with tab_camera:
+        st.markdown(
+            '<p style="color:#b0b0c0; font-size:0.95rem;">'
+            "Point your phone camera at the waste item and tap the capture button. "
+            "Prediction starts automatically.</p>",
+            unsafe_allow_html=True,
+        )
 
-        # ── Classify button ──────────────────────────────────────────
-        enable_gradcam = st.checkbox("🔥 Enable Grad-CAM visualization", value=False)
-        classify_btn = st.button("🔬 Classify Image", type="primary", use_container_width=True)
+        camera_image = st.camera_input("Capture Waste Image")
 
-        if classify_btn:
+        if camera_image is not None:
+            # Show the captured image
+            image = Image.open(camera_image)
+            st.image(image, caption="📷 Captured Image", use_container_width=True)
+
+            # Auto-predict immediately
             with st.spinner("🧠 Analyzing image…"):
-                try:
-                    # Reset file pointer for upload
+                result = send_to_backend(
+                    image_bytes=camera_image.getvalue(),
+                    filename="camera_capture.jpg",
+                    content_type="image/jpeg",
+                    use_gradcam=False,
+                )
+
+            if result:
+                display_prediction(result, show_gradcam=False)
+
+    # ── Tab 2: File Upload (existing flow, with classify button) ─────
+    with tab_upload:
+        uploaded_file = st.file_uploader(
+            "📤 Upload a waste image",
+            type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
+            help="Supported formats: JPEG, PNG, WebP, BMP, TIFF",
+        )
+
+        if uploaded_file is not None:
+            # ── Preview ──────────────────────────────────────────────
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                image = Image.open(uploaded_file)
+                st.image(image, caption="Uploaded Image", use_container_width=True)
+
+            # ── Options ──────────────────────────────────────────────
+            enable_gradcam = st.checkbox("🔥 Enable Grad-CAM visualization", value=False)
+            classify_btn = st.button(
+                "🔬 Classify Image", type="primary", use_container_width=True
+            )
+
+            if classify_btn:
+                with st.spinner("🧠 Analyzing image…"):
                     uploaded_file.seek(0)
-
-                    endpoint = GRADCAM_ENDPOINT if enable_gradcam else PREDICT_ENDPOINT
-                    files = {
-                        "file": (
-                            uploaded_file.name,
-                            uploaded_file.getvalue(),
-                            uploaded_file.type,
-                        )
-                    }
-                    response = requests.post(endpoint, files=files, timeout=60)
-
-                    if response.status_code == 200:
-                        result = response.json()
-
-                        with col2:
-                            render_result(result)
-
-                        # ── Probability chart ─────────────────────────
-                        st.markdown("### 📊 Class Probabilities")
-                        render_probability_chart(result["all_probabilities"])
-
-                        # ── Grad-CAM ──────────────────────────────────
-                        if enable_gradcam and result.get("gradcam_image"):
-                            st.markdown("### 🔥 Grad-CAM Heatmap")
-                            import base64
-                            from io import BytesIO
-
-                            gradcam_bytes = base64.b64decode(result["gradcam_image"])
-                            gradcam_img = Image.open(BytesIO(gradcam_bytes))
-                            st.image(
-                                gradcam_img,
-                                caption="Grad-CAM — Areas the model focused on",
-                                use_container_width=True,
-                            )
-
-                        # ── Raw JSON (expandable) ─────────────────────
-                        with st.expander("📋 Raw API Response"):
-                            display_result = {
-                                k: v
-                                for k, v in result.items()
-                                if k != "gradcam_image"
-                            }
-                            st.json(display_result)
-                    else:
-                        st.error(
-                            f"❌ API Error ({response.status_code}): "
-                            f"{response.json().get('detail', response.text)}"
-                        )
-                except requests.exceptions.ConnectionError:
-                    st.error(
-                        "❌ **Could not connect to the backend.**\n\n"
-                        f"Make sure the FastAPI server is running at `{BACKEND_URL}`.\n\n"
-                        "```bash\ncd backend && uvicorn app.main:app --reload\n```"
+                    result = send_to_backend(
+                        image_bytes=uploaded_file.getvalue(),
+                        filename=uploaded_file.name,
+                        content_type=uploaded_file.type,
+                        use_gradcam=enable_gradcam,
                     )
-                except requests.exceptions.Timeout:
-                    st.error("⏱️ Request timed out. The model may be loading — try again.")
-                except Exception as exc:
-                    st.error(f"❌ Unexpected error: {exc}")
+
+                if result:
+                    with col2:
+                        render_result(result)
+                        render_bin_info(result)
+
+                    display_prediction(result, show_gradcam=enable_gradcam)
 
     # ── Footer ───────────────────────────────────────────────────────
     st.markdown(
@@ -350,7 +488,7 @@ def main() -> None:
         <div class="eco-footer">
             Built with ❤️ using Streamlit & FastAPI &bull;
             EcoVision Garbage Classification &bull;
-            10 waste categories
+            10 waste categories &bull; Smart Bin Routing
         </div>
         """,
         unsafe_allow_html=True,

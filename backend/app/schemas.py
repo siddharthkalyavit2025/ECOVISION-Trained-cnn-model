@@ -45,6 +45,16 @@ class PredictionResponse(BaseModel):
         False,
         description="True when the top prediction confidence is below the configured threshold.",
     )
+    bin_category: str | None = Field(
+        None,
+        description="Bin category: recyclable, organic, or other.",
+        examples=["recyclable"],
+    )
+    servo_angle: int | None = Field(
+        None,
+        description="Servo angle sent to Arduino (0, 90, or 180).",
+        examples=[0],
+    )
 
 
 class GradCAMResponse(PredictionResponse):
