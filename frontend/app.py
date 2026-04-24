@@ -1,9 +1,8 @@
 """
 EcoVision — Streamlit Frontend
 
-A modern UI for uploading waste images OR capturing them via the
-phone camera, then receiving AI-powered classification results
-from the FastAPI backend.  Supports mobile browser access.
+A modern UI for uploading waste images and receiving AI-powered
+classification results from the FastAPI backend.
 """
 
 from __future__ import annotations
@@ -163,28 +162,9 @@ st.markdown(
         padding: 1rem;
     }
 
-    /* ── Camera area (mobile-friendly) ── */
-    [data-testid="stCameraInput"] {
-        border: 2px dashed rgba(0,201,255,0.3);
-        border-radius: 16px;
-        padding: 0.5rem;
-    }
 
-    /* ── Tabs styling ─────────────────── */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 0.5rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background: rgba(255,255,255,0.05);
-        border-radius: 10px;
-        color: #b0b0c0;
-        padding: 0.5rem 1.5rem;
-    }
-    .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #00c9ff, #92fe9d) !important;
-        color: #0f0c29 !important;
-        font-weight: 700;
-    }
+
+
 
     </style>
     """,
@@ -410,77 +390,57 @@ def main() -> None:
     st.markdown("---")
 
     # ═══════════════════════════════════════════════════════════════════
-    #  Waste Classification — two input modes
+    #  Waste Classification — File Upload
     # ═══════════════════════════════════════════════════════════════════
-    st.markdown("### 📸 Waste Classification")
+    st.markdown("### 📤 Waste Classification")
 
-    tab_camera, tab_upload = st.tabs(["📱 Camera Capture", "📤 File Upload"])
+    uploaded_file = st.file_uploader(
+        "Upload a waste image",
+        type=["jpg", "jpeg", "png"],
+        help="Supported formats: JPG, JPEG, PNG",
+    )
 
-    # ── Tab 1: Camera Capture (mobile-friendly, auto-predict) ────────
-    with tab_camera:
-        st.markdown(
-            '<p style="color:#b0b0c0; font-size:0.95rem;">'
-            "Point your phone camera at the waste item and tap the capture button. "
-            "Prediction starts automatically.</p>",
-            unsafe_allow_html=True,
+    if uploaded_file is not None:
+        # ── Preview ──────────────────────────────────────────────────
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            image = Image.open(uploaded_file)
+            st.image(image, caption="Uploaded Image", use_container_width=True)
+
+        # ── Options ──────────────────────────────────────────────────
+        enable_gradcam = st.checkbox("🔥 Enable Grad-CAM visualization", value=False)
+        classify_btn = st.button(
+            "🔬 Classify Image", type="primary", use_container_width=True
         )
 
-        camera_image = st.camera_input("Capture Waste Image")
-
-        if camera_image is not None:
-            # Show the captured image
-            image = Image.open(camera_image)
-            st.image(image, caption="📷 Captured Image", use_container_width=True)
-
-            # Auto-predict immediately
+        if classify_btn:
             with st.spinner("🧠 Analyzing image…"):
+                uploaded_file.seek(0)
                 result = send_to_backend(
-                    image_bytes=camera_image.getvalue(),
-                    filename="camera_capture.jpg",
-                    content_type="image/jpeg",
-                    use_gradcam=False,
+                    image_bytes=uploaded_file.getvalue(),
+                    filename=uploaded_file.name,
+                    content_type=uploaded_file.type,
+                    use_gradcam=enable_gradcam,
                 )
 
             if result:
-                display_prediction(result, show_gradcam=False)
+                # ── Quick summary via Streamlit widgets ──────────────
+                predicted_class = result["predicted_class"]
+                confidence = result["confidence"]
+                category = result.get("bin_category", "N/A")
+                angle = result.get("servo_angle", "N/A")
 
-    # ── Tab 2: File Upload (existing flow, with classify button) ─────
-    with tab_upload:
-        uploaded_file = st.file_uploader(
-            "📤 Upload a waste image",
-            type=["jpg", "jpeg", "png", "webp", "bmp", "tiff"],
-            help="Supported formats: JPEG, PNG, WebP, BMP, TIFF",
-        )
+                st.success(f"Prediction: {predicted_class}")
+                st.info(f"Category: {category}")
+                st.write(f"Confidence: {confidence:.2f}")
+                st.write(f"Servo Angle: {angle}°")
 
-        if uploaded_file is not None:
-            # ── Preview ──────────────────────────────────────────────
-            col1, col2 = st.columns([1, 1])
-            with col1:
-                image = Image.open(uploaded_file)
-                st.image(image, caption="Uploaded Image", use_container_width=True)
+                # ── Detailed result cards ────────────────────────────
+                with col2:
+                    render_result(result)
+                    render_bin_info(result)
 
-            # ── Options ──────────────────────────────────────────────
-            enable_gradcam = st.checkbox("🔥 Enable Grad-CAM visualization", value=False)
-            classify_btn = st.button(
-                "🔬 Classify Image", type="primary", use_container_width=True
-            )
-
-            if classify_btn:
-                with st.spinner("🧠 Analyzing image…"):
-                    uploaded_file.seek(0)
-                    result = send_to_backend(
-                        image_bytes=uploaded_file.getvalue(),
-                        filename=uploaded_file.name,
-                        content_type=uploaded_file.type,
-                        use_gradcam=enable_gradcam,
-                    )
-
-                if result:
-                    with col2:
-                        render_result(result)
-                        render_bin_info(result)
-
-                    display_prediction(result, show_gradcam=enable_gradcam)
+                display_prediction(result, show_gradcam=enable_gradcam)
 
     # ── Footer ───────────────────────────────────────────────────────
     st.markdown(
